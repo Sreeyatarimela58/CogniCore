@@ -5,6 +5,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   JWT_SECRET: z.string().min(10),
   JWT_REFRESH_SECRET: z.string().min(10),
+  CREDENTIAL_ENCRYPTION_KEY: z.string().length(32),
   PORT: z.string().default('3000'),
   CORS_ORIGIN: z.string().url(),
   LOG_LEVEL: z.string().default('info'),

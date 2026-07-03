@@ -123,3 +123,5 @@ STOP.
 Request approval before proceeding.
 
 Do not guess requirements.
+## UI Fidelity Rule:
+ Before considering any frontend task complete, compare the implemented page against the approved Stitch design component-by-component. Any deviations must be documented and justified. Functionality alone is not sufficient; the implemented UI must faithfully match the approved design language while remaining honest about the features available in the current project phase

@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppShell } from './components/AppShell';
 import { AuthPage } from './pages/AuthPage';
 import { WorkspacePage } from './pages/WorkspacePage';
+import { DatabasesPage } from './pages/DatabasesPage';
+import { SchemaPage } from './pages/SchemaPage';
 
 const queryClient = new QueryClient();
 
@@ -30,9 +32,9 @@ export default function App() {
             }
           >
             <Route index element={<WorkspacePage />} />
-            <Route path="schema" element={<div className="p-margin text-on-surface">Schema Page (Coming Soon)</div>} />
+            <Route path="schema" element={<SchemaPage />} />
             <Route path="investigations" element={<div className="p-margin text-on-surface">Investigations Page (Coming Soon)</div>} />
-            <Route path="databases" element={<div className="p-margin text-on-surface">Databases Page (Coming Soon)</div>} />
+            <Route path="databases" element={<DatabasesPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -1,9 +1,11 @@
 import React from 'react';
 import { Sidebar } from './Sidebar';
 import { Outlet, useNavigate } from 'react-router-dom';
+import { useActiveConnection } from '../hooks/useActiveConnection';
 
 export function AppShell() {
   const navigate = useNavigate();
+  const { activeDb } = useActiveConnection();
   
   const handleLogout = () => {
     localStorage.removeItem('accessToken');
@@ -19,10 +21,12 @@ export function AppShell() {
           <div className="flex items-center gap-6">
             {/* The page title can be dynamic or set by children, but for now we'll leave it as Workspace for the dashboard */}
             <h2 className="font-headline-md text-headline-md font-semibold text-on-surface">Workspace</h2>
-            <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 rounded-full border border-outline-variant/20">
-              <span className="w-2 h-2 rounded-full bg-status-success animate-pulse"></span>
-              <span className="font-tech-code text-tech-code text-slate-muted">Production_DB_West</span>
-            </div>
+            {activeDb && (
+              <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 rounded-full border border-outline-variant/20">
+                <span className="w-2 h-2 rounded-full bg-status-success animate-pulse"></span>
+                <span className="font-tech-code text-tech-code text-slate-muted">{activeDb.name}</span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <button 

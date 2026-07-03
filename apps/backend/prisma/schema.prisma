@@ -7,13 +7,15 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         String   @default("sales_analyst") // "manager" | "sales_analyst"
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String               @id @default(uuid())
+  name          String
+  email         String               @unique
+  passwordHash  String
+  role          String               @default("sales_analyst") // "manager" | "sales_analyst"
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  refreshTokens RefreshToken[]
+  databases     DatabaseConnection[]
 }
 
 model RefreshToken {
@@ -22,6 +24,7 @@ model RefreshToken {
   tokenHash String
   expiresAt DateTime
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AuditLog {
@@ -30,4 +33,58 @@ model AuditLog {
   action    String
   metadata  Json?
   createdAt DateTime @default(now())
+}
+
+enum SyncStatus {
+  CONNECTING
+  SYNCING
+  COMPLETED
+  FAILED
+  INVALID_CREDENTIALS
+}
+
+enum HealthStatus {
+  HEALTHY
+  UNHEALTHY
+  UNKNOWN
+}
+
+model DatabaseConnection {
+  id                String       @id @default(uuid())
+  userId            String
+  name              String
+  host              String
+  port              Int
+  database          String
+  username          String
+  encryptedPassword String
+  ssl               Boolean      @default(true)
+  syncStatus        SyncStatus   @default(CONNECTING)
+  healthStatus      HealthStatus @default(UNKNOWN)
+  schemaVersion     Int          @default(0)
+  lastSyncAt        DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schemas           SchemaMetadata[]
+
+  @@index([userId])
+}
+
+model SchemaMetadata {
+  id              String   @id @default(uuid())
+  connectionId    String
+  tableName       String
+  columns         Json
+  relationships   Json
+  structureHash   String
+  version         Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  connection      DatabaseConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([structureHash])
 }

@@ -44,5 +44,10 @@ logs
 pgdata/
 docker-compose.override.yml
 
-# Docs
+# Docs and Project Specs (not required in repo)
 docs/
+CONTRIBUTING_FOR_AI_v1.0.md
+
+# Stitch Designs / UI Mocks
+*.html
+!index.html

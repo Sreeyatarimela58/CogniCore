@@ -3,6 +3,8 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import authRoutes from './modules/auth/auth.routes.js';
+import connectionRoutes from './modules/connection/connection.routes.js';
+import schemaRoutes from './modules/schema-discovery/schema.routes.js';
 import { errorHandler } from './shared/middlewares/error-handler.middleware.js';
 import { logger } from './config/logger.js';
 
@@ -26,6 +28,8 @@ app.use((req, res, next) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/databases', connectionRoutes);
+app.use('/api/schema', schemaRoutes);
 
 // Error handling
 app.use(errorHandler);
