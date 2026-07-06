@@ -14,6 +14,7 @@ router.post('/test', connectionController.testConnection);
 router.put('/:id', connectionController.updateConnection);
 router.delete('/:id', connectionController.deleteConnection);
 router.post('/:id/sync', connectionController.syncConnection);
+router.post('/:id/refresh', connectionController.syncConnection); // Phase 3 incremental refresh
 router.get('/:id/status', connectionController.getConnectionStatus);
 
 // Note: Schema routes have been moved to schema.routes.js

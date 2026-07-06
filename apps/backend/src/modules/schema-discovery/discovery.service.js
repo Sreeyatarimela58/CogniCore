@@ -3,6 +3,7 @@ import prisma from '../../prisma.js';
 import { getPool } from '../connection/connection.pool-manager.js';
 import { getTables, getColumns, getRelationships } from './discovery.queries.js';
 import { runValidation } from '../schema-validation/validation.rules.js';
+import { processSchemaRefresh } from '../knowledge-base/knowledge-base.refresh.js';
 import { logger } from '../../config/logger.js';
 
 const DISCOVERY_TIMEOUT_MS = 30000; // 30 seconds timeout
@@ -59,40 +60,20 @@ async function performDiscovery(connectionId, userId) {
       logger.warn({ connectionId, warnings }, 'Schema validation warnings');
     }
 
-    // 3. Clear old metadata and Store new metadata (in transaction)
-    await prisma.$transaction(async (tx) => {
-      await tx.schemaMetadata.deleteMany({
-        where: { connectionId }
-      });
-      
-      for (const table of tablesData) {
-        // Hash the structure to detect changes in Phase 3
-        const structureString = JSON.stringify({ columns: table.columns, relationships });
-        const structureHash = crypto.createHash('sha256').update(structureString).digest('hex');
-        
-        const tableRels = relationships.filter(r => r.source_table === table.tableName || r.target_table === table.tableName);
-        
-        await tx.schemaMetadata.create({
-          data: {
-            connectionId,
-            tableName: table.tableName,
-            columns: table.columns,
-            relationships: tableRels,
-            structureHash
-          }
-        });
+    // 3. Sync metadata with Knowledge Base versioning
+    const changedCount = await processSchemaRefresh(connectionId, tablesData, relationships);
+    
+    // 4. Update connection status
+    // If there are changes, status is SYNCING while BullMQ runs the jobs.
+    // Otherwise, COMPLETED.
+    await prisma.databaseConnection.update({
+      where: { id: connectionId },
+      data: {
+        syncStatus: changedCount > 0 ? 'SYNCING' : 'COMPLETED',
+        healthStatus: 'HEALTHY',
+        lastSyncAt: new Date(),
+        schemaVersion: { increment: 1 }
       }
-      
-      // Update connection status to COMPLETED and increment schemaVersion
-      await tx.databaseConnection.update({
-        where: { id: connectionId },
-        data: {
-          syncStatus: 'COMPLETED',
-          healthStatus: 'HEALTHY',
-          lastSyncAt: new Date(),
-          schemaVersion: { increment: 1 }
-        }
-      });
     });
 
   } finally {

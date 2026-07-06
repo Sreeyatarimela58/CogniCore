@@ -26,7 +26,7 @@ export function useActiveConnection(urlParamId = null) {
   const activeDb = useMemo(() => {
     if (!dbsData?.data?.connections) return null;
     const connections = dbsData.data.connections;
-    const completedConnections = connections.filter(c => c.syncStatus === 'COMPLETED');
+    const completedConnections = connections.filter(c => c.syncStatus === 'COMPLETED' || c.syncStatus === 'SYNCING');
     
     // 1. If we have a URL param, prioritize it
     if (urlParamId) {
@@ -67,5 +67,5 @@ export function useActiveConnection(urlParamId = null) {
     return () => window.removeEventListener('activeConnectionChanged', handleCustomChange);
   }, []);
 
-  return { activeDb, hasMultipleCompleted: dbsData?.data?.connections?.filter(c => c.syncStatus === 'COMPLETED').length > 1 };
+  return { activeDb, hasMultipleCompleted: dbsData?.data?.connections?.filter(c => c.syncStatus === 'COMPLETED' || c.syncStatus === 'SYNCING').length > 1 };
 }

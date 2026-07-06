@@ -2,6 +2,8 @@ import prisma from '../../prisma.js';
 import { encryptPassword } from './connection.crypto.js';
 import { destroyPool, testTemporaryConnection } from './connection.pool-manager.js';
 import { runAsyncDiscovery } from '../schema-discovery/discovery.service.js';
+import { metadataQueue, embeddingsQueue } from '../../shared/queue/queue.js';
+import { logger } from '../../config/logger.js';
 
 export async function testConnection(dbConfig) {
   try {
@@ -122,16 +124,16 @@ export async function syncConnection(userId, connectionId) {
     throw err;
   }
 
-  if (connection.syncStatus === 'SYNCING') {
-    const err = new Error('Sync already in progress');
+  const updateResult = await prisma.databaseConnection.updateMany({
+    where: { id: connectionId, userId, syncStatus: 'COMPLETED' },
+    data: { syncStatus: 'SYNCING' },
+  });
+
+  if (updateResult.count === 0) {
+    const err = new Error('Sync already in progress or connection not ready');
     err.status = 409;
     throw err;
   }
-
-  await prisma.databaseConnection.update({
-    where: { id: connectionId, userId },
-    data: { syncStatus: 'SYNCING' },
-  });
 
   runAsyncDiscovery(connectionId, userId).catch(console.error);
   return true;
@@ -172,6 +174,31 @@ export async function getConnectionStatus(userId, connectionId) {
     throw err;
   }
 
+  if (connection.syncStatus === 'SYNCING') {
+    const jobStats = await prisma.backgroundJob.groupBy({
+      by: ['status'],
+      where: { connectionId },
+      _count: true
+    });
+
+    let completed = 0;
+    let total = 0;
+
+    for (const group of jobStats) {
+      if (group.status === 'completed') completed += group._count;
+      total += group._count;
+    }
+
+    // Determine the current active job for UI display text
+    const currentJob = await prisma.backgroundJob.findFirst({
+      where: { connectionId, status: { in: ['queued', 'running', 'delayed'] } },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    connection.progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+    connection.currentJob = currentJob;
+  }
+
   return connection;
 }
 
@@ -188,14 +215,34 @@ export async function deleteConnection(userId, connectionId) {
 
   await destroyPool(connectionId);
 
+  const schemas = await prisma.schemaMetadata.findMany({
+    where: { connectionId },
+    select: { id: true }
+  });
+
   await prisma.$transaction([
+    prisma.schemaEmbedding.deleteMany({
+      where: { metadata: { connectionId } }
+    }),
     prisma.schemaMetadata.deleteMany({
       where: { connectionId }
     }),
+    prisma.backgroundJob.deleteMany({
+      where: { connectionId }
+    }),
     prisma.databaseConnection.delete({
-      where: { id: connectionId, userId } // Enforce userId again just in case
+      where: { id: connectionId, userId }
     })
   ]);
 
+  // Force clean Redis jobs to prevent orphaned jobs executing
+  try {
+    for (const schema of schemas) {
+      await metadataQueue.remove(`metadata-${schema.id}`);
+      await embeddingsQueue.remove(`embeddings-${schema.id}`);
+    }
+  } catch (error) {
+    logger.error({ err: error, connectionId }, 'Failed to cleanly remove all jobs from BullMQ');
+  }
   return true;
 }

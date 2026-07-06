@@ -1,14 +1,16 @@
-import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchWithAuth } from '../utils/api';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import clsx from 'clsx';
 import { useActiveConnection } from '../hooks/useActiveConnection';
+import { OnboardingProgressBar } from '../components/OnboardingProgressBar';
 
 export function SchemaPage() {
   const [searchParams] = useSearchParams();
   const connectionIdParam = searchParams.get('connectionId');
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTableName, setSelectedTableName] = useState(null);
 
@@ -22,11 +24,32 @@ export function SchemaPage() {
     }
   }, [connectionIdParam, activeDb, navigate]);
 
-  const { data: schemaData, isLoading: schemaLoading, error: schemaError } = useQuery({
+  const { data: schemaData, isLoading: schemaLoading, error: schemaError, refetch: refetchSchema } = useQuery({
     queryKey: ['schema', connectionId],
     queryFn: () => fetchWithAuth(`/api/schema/tables?connectionId=${connectionId}`),
     enabled: !!connectionId
   });
+
+  const { data: statusData } = useQuery({
+    queryKey: ['connectionStatus', connectionId],
+    queryFn: () => fetchWithAuth(`/api/databases/${connectionId}/status`),
+    enabled: !!connectionId,
+    refetchInterval: (data) => {
+      // Poll every 2 seconds if still syncing
+      return data?.data?.status?.syncStatus === 'SYNCING' ? 2000 : false;
+    }
+  });
+
+  const currentStatus = statusData?.data?.status;
+
+  // If status changes from SYNCING to COMPLETED, refetch the schema list to get updated tables/AI metadata
+  useEffect(() => {
+    if (currentStatus?.syncStatus === 'COMPLETED') {
+      refetchSchema();
+      // Also invalidate connections list so sidebar updates
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+    }
+  }, [currentStatus?.syncStatus, refetchSchema, queryClient]);
 
   const tables = schemaData?.data?.tables || [];
 
@@ -109,6 +132,29 @@ export function SchemaPage() {
           </div>
         </header>
 
+        {currentStatus?.syncStatus === 'SYNCING' && (
+          <OnboardingProgressBar connection={currentStatus} />
+        )}
+
+        {/* Stale Metadata Banner */}
+        {currentStatus?.syncStatus === 'COMPLETED' && tables.some(t => t.isStale) && (
+          <div className="bg-surface-warm/20 border-b border-copper-accent/30 p-3 flex justify-between items-center">
+            <span className="text-sm font-label-md text-on-surface flex items-center gap-2">
+              <span className="material-symbols-outlined text-copper-accent text-[18px]">warning</span>
+              Some tables have stale AI metadata due to recent schema changes.
+            </span>
+            <button 
+              onClick={async () => {
+                await fetchWithAuth(`/api/databases/${connectionId}/refresh`, { method: 'POST' });
+                queryClient.invalidateQueries({ queryKey: ['connectionStatus', connectionId] });
+              }}
+              className="px-3 py-1 bg-copper-accent text-surface-container-lowest text-xs font-label-md rounded hover:bg-copper-accent/90"
+            >
+              Regenerate Metadata
+            </button>
+          </div>
+        )}
+
         <section className="flex-1 overflow-y-auto p-6 grid-bg">
           <div className="flex items-baseline justify-between mb-4">
             <div className="flex items-baseline gap-2">
@@ -152,7 +198,9 @@ export function SchemaPage() {
                           <span className={clsx("font-tech-code text-[13px] truncate", isSelected ? "text-on-surface font-semibold" : "text-on-surface font-medium")}>
                             {table.tableName}
                           </span>
-                          <span className="text-[11px] text-slate-muted truncate italic">AI description pending</span>
+                          <span className={clsx("text-[11px] truncate", table.businessDescription ? "text-slate-muted" : "text-slate-muted italic")}>
+                            {table.businessDescription || 'AI description pending'}
+                          </span>
                         </div>
                       </td>
                       <td className="px-4 py-2.5 font-label-md text-[12px] text-on-surface-variant">
@@ -191,9 +239,21 @@ export function SchemaPage() {
                 {/* Backend does not generate table-level warnings in Phase 2. Do not fabricate warnings. */}
                 <span className="font-tech-code text-[10px] bg-status-success/10 text-status-success px-1.5 py-0.5 rounded border border-status-success/20">VALIDATED</span>
               </div>
-              <p className="text-[12px] text-slate-muted/50 italic leading-relaxed">
-                AI description pending... (Will be populated in Phase 3)
+              <p className="text-[12px] text-slate-muted/80 leading-relaxed mt-3">
+                {selectedTable.businessDescription ? selectedTable.businessDescription : <span className="italic opacity-50">AI description pending... (Generating in background)</span>}
               </p>
+              {selectedTable.businessPurpose && (
+                <p className="text-[12px] text-slate-muted/80 leading-relaxed mt-2">
+                  <span className="font-semibold text-on-surface">Purpose:</span> {selectedTable.businessPurpose}
+                </p>
+              )}
+              {selectedTable.synonyms && selectedTable.synonyms.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {selectedTable.synonyms.map(syn => (
+                    <span key={syn} className="text-[10px] bg-surface-container-high border border-outline-variant/10 text-on-surface px-1.5 py-0.5 rounded">{syn}</span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="p-5">
@@ -209,7 +269,14 @@ export function SchemaPage() {
                   
                   return (
                     <div key={col.name} className="grid grid-cols-[1fr_auto_40px] gap-2 p-2 bg-surface-container items-center group relative">
-                      <span className="font-tech-code text-[12px] text-on-surface font-medium truncate" title={col.name}>{col.name}</span>
+                      <div className="flex flex-col overflow-hidden">
+                        <span className="font-tech-code text-[12px] text-on-surface font-medium truncate" title={col.name}>{col.name}</span>
+                        {selectedTable.columnDescriptions?.[col.name] && (
+                          <span className="text-[10px] text-slate-muted truncate mt-0.5" title={selectedTable.columnDescriptions[col.name]}>
+                            {selectedTable.columnDescriptions[col.name]}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex flex-col items-end">
                         <span className="font-tech-code text-[10px] text-slate-muted uppercase">{col.type}</span>
                         {(col.nullable || col.default) && (
