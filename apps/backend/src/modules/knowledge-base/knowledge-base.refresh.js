@@ -71,7 +71,7 @@ export async function processSchemaRefresh(connectionId, discoveredTables, allRe
       // We will loop, but in a safe sequential manner.
       for (const table of tablesToCreate) {
         const created = await tx.schemaMetadata.create({ data: table });
-        jobsToQueue.push({ id: created.id, tableName: created.tableName });
+        jobsToQueue.push({ id: created.id, tableName: created.tableName, version: created.version });
       }
     }
     
@@ -79,7 +79,7 @@ export async function processSchemaRefresh(connectionId, discoveredTables, allRe
     for (const table of tablesToUpdate) {
       const { id, ...data } = table;
       await tx.schemaMetadata.update({ where: { id }, data });
-      jobsToQueue.push({ id, tableName: data.tableName });
+      jobsToQueue.push({ id, tableName: data.tableName, version: data.version });
     }
 
     // Create BackgroundJob records atomically
@@ -104,7 +104,11 @@ export async function processSchemaRefresh(connectionId, discoveredTables, allRe
       await metadataQueue.add(
         `metadata-${metadataId}`, 
         { metadataId, connectionId, traceId },
-        { attempts: 8, backoff: { type: 'exponential', delay: 10000 } }
+        { 
+          jobId: `metadata-${metadataId}-v${job.version}`,
+          attempts: 8, 
+          backoff: { type: 'exponential', delay: 10000 } 
+        }
       );
     } catch (error) {
       logger.error({ err: error, metadataId, connectionId }, 'Failed to enqueue metadata job');

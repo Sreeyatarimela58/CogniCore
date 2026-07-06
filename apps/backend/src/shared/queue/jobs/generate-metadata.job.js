@@ -58,7 +58,11 @@ export const metadataWorker = createWorker('generate-metadata', async (job, toke
     await embeddingsQueue.add(
       `embeddings-${metadataId}`, 
       { metadataId, connectionId, traceId },
-      { attempts: 5, backoff: { type: 'exponential', delay: 10000 } }
+      { 
+        jobId: `embeddings-${metadataId}-v${tableMetadata.version}`,
+        attempts: 5, 
+        backoff: { type: 'exponential', delay: 10000 } 
+      }
     );
     
     logger.info({ traceId, tableName: tableMetadata.tableName }, 'Embedding job queued');

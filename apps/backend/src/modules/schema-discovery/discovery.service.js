@@ -5,10 +5,23 @@ import { getTables, getColumns, getRelationships } from './discovery.queries.js'
 import { runValidation } from '../schema-validation/validation.rules.js';
 import { processSchemaRefresh } from '../knowledge-base/knowledge-base.refresh.js';
 import { logger } from '../../config/logger.js';
+import { redisConnection } from '../../shared/queue/queue.js';
 
 const DISCOVERY_TIMEOUT_MS = 30000; // 30 seconds timeout
+const LOCK_TTL_SECONDS = 35; // Slightly longer than discovery timeout to ensure safety
 
 export async function runAsyncDiscovery(connectionId, userId) {
+  const lockKey = `discovery:lock:${connectionId}`;
+  
+  // Attempt to acquire distributed lock using Redis SETNX
+  // 'EX' sets an expiration to prevent permanent deadlocks if the Node process crashes
+  const acquired = await redisConnection.set(lockKey, 'locked', 'EX', LOCK_TTL_SECONDS, 'NX');
+  
+  if (!acquired) {
+    logger.info({ connectionId }, 'Discovery already in progress for this connection, skipping duplicate request.');
+    return;
+  }
+
   // We wrap the entire discovery in a Promise race to enforce the timeout
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => reject(new Error('Discovery timeout exceeded')), DISCOVERY_TIMEOUT_MS);
@@ -27,6 +40,9 @@ export async function runAsyncDiscovery(connectionId, userId) {
       where: { id: connectionId, userId },
       data: { syncStatus: 'FAILED', healthStatus: 'UNHEALTHY' }
     });
+  } finally {
+    // Release the lock
+    await redisConnection.del(lockKey).catch(e => logger.error({ err: e }, 'Failed to release discovery lock'));
   }
 }
 
